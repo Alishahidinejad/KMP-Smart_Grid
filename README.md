@@ -1,2 +1,476 @@
 # KMP-ProVerif-Smart-Grid
 This repository introduces ProVerif automated security verification tailored for a key management protocol designed for smart grids. The protocol encompasses detailed process definitions for crucial entities, namely the Registration Authority (RA), Energy Provider (EP), and Smart Meter (SM).
+
+
+####### 1. Testing common attacks#######
+(* Channel Definition *)
+free PriNet : channel [private].
+free LedgerNet : channel [private].
+free PubNet : channel.
+
+(* Private Terms *)
+free ID_SM : bitstring [private].
+free sk_SM : bitstring [private].
+free sk_RA : bitstring [private].
+free sk_EP : bitstring [private].
+free SK : bitstring [private].
+
+(* Public Terms *)
+free ID_RA : bitstring.
+free ID_EP : bitstring.
+const B : bitstring.
+
+(* Functions *)
+fun ECCPointMul(bitstring, bitstring) : bitstring.
+fun Mul(bitstring, bitstring) : bitstring.
+fun Add(bitstring, bitstring) : bitstring.
+fun HashFunOne(bitstring) : bitstring.
+fun HashFunTwo(bitstring, bitstring) : bitstring.
+fun SymEnc(bitstring, bitstring): bitstring.
+fun ConcatTwo(bitstring, bitstring) : bitstring.
+fun HashFunFour(bitstring, bitstring, bitstring, bitstring) : bitstring.
+
+(* Destructors *)
+reduc forall m1 : bitstring, m2 : bitstring; SymDec(SymEnc(m1, m2), m2) = m1.
+reduc forall m1 : bitstring, m2 : bitstring; SeparateFirst2(ConcatTwo(m1, m2)) = m1.
+reduc forall m1 : bitstring, m2 : bitstring; SeparateSecond2(ConcatTwo(m1, m2)) = m2.
+
+(* Equations *)
+equation forall m1 : bitstring, m2 : bitstring, m3 : bitstring, m4 : bitstring;
+ECCPointMul(Add(m1, m2), Add(ECCPointMul(m3, B), ECCPointMul(m4, B))) =
+ECCPointMul(Add(m3, m4), Add(ECCPointMul(m1, B), ECCPointMul(m2, B))).
+
+(* queries *)
+query ID : bitstring; inj-event (SessionTermination (ID)) ==> inj-event (SessionInitiation (ID)).
+query attacker (SK).
+noninterf ID_SM.
+
+(* Events *)
+event SessionInitiation (bitstring).
+event SessionTermination (bitstring).
+
+(* Registration Authority *)
+let pRA =
+new r1_RA : bitstring;
+new r2_RA : bitstring;
+let PK_RA = ECCPointMul(sk_RA, B) in
+out (PriNet, (PK_RA));
+in (PriNet, (PK_EP : bitstring));
+in (PriNet, (R_SM : bitstring, K_SM_EP : bitstring));
+let R_RA = ECCPointMul(HashFunTwo(ID_RA, r1_RA), B) in
+let s_SM = Add(Mul(HashFunTwo(R_RA, R_SM), sk_RA), HashFunTwo(ID_RA, r1_RA)) in
+let EID_SM_RA = SymEnc(ConcatTwo(ID_SM, r2_RA), HashFunOne(sk_RA)) in
+out (LedgerNet, (R_RA, R_SM, K_SM_EP));
+out (PriNet, (EID_SM_RA, s_SM));
+0.
+
+(* Energy Provider *)
+let pEP =
+new a1_EP : bitstring;
+new a2_EP : bitstring;
+let PK_EP = ECCPointMul(sk_EP, B) in
+out (PriNet, (PK_EP));
+in (PriNet, (PK_RA : bitstring));
+let K_EP_RA = HashFunOne(ECCPointMul(Mul(sk_EP, HashFunTwo(ID_RA, ID_EP)), PK_RA)) in
+in (PubNet, (xEID_SM_RA : bitstring, xE_SM : bitstring, xCT_SM : bitstring));
+in (LedgerNet, (R_RA : bitstring, R_SM : bitstring, K_SM_EP : bitstring));
+let temp0 = SymDec(xE_SM, K_SM_EP) in
+let xA_SM = SeparateFirst2(temp0) in
+let xH_SM = SeparateSecond2(temp0) in
+let xA_EP = HashFunFour(xEID_SM_RA, ID_EP, PK_EP, xCT_SM) in
+let temp1 = ECCPointMul(xH_SM, B) in
+let temp2 = Add(ECCPointMul(xA_EP, Add(ECCPointMul(HashFunTwo(R_RA, R_SM), PK_RA), R_RA)), xA_SM) in
+if (temp1 = temp2) then
+let B_EP = ECCPointMul(HashFunTwo(a1_EP, sk_EP), B) in
+let SK_EP_SM = HashFunOne(ECCPointMul(Add(sk_EP, HashFunTwo(a1_EP, sk_EP)), Add(R_SM, xA_SM))) in
+out (PubNet, SymEnc(SK, SK_EP_SM));
+let EID_SM_EP = SymEnc(ConcatTwo(xEID_SM_RA, a2_EP), K_EP_RA) in
+let E_EP = SymEnc(EID_SM_EP, SK_EP_SM) in
+let H_EP = HashFunFour(EID_SM_EP, B_EP, SK_EP_SM, xCT_SM) in
+out (PubNet, (B_EP, E_EP, H_EP));
+0.
+
+(* Smart Meter *)
+let pSM =
+new r1_SM : bitstring;
+new r2_SM : bitstring;
+new a_SM : bitstring;
+new CT_SM : bitstring;
+in (PriNet, (PK_EP : bitstring));
+let R_SM = ECCPointMul(HashFunTwo(ID_SM, r1_SM), B) in
+let K_SM_EP = HashFunTwo(r1_SM, r2_SM) in
+out (PriNet, (R_SM, K_SM_EP));
+in (PriNet, (EID_SM_RA : bitstring, s_SM : bitstring));
+let A_SM = ECCPointMul(HashFunTwo(a_SM, sk_SM), B) in
+let H_SM = Add(Mul(HashFunFour(EID_SM_RA, ID_EP, PK_EP, CT_SM), s_SM), HashFunTwo(a_SM, sk_SM)) in
+let E_SM = SymEnc(ConcatTwo(A_SM, H_SM), K_SM_EP) in
+event SessionInitiation (ID_SM);
+out (PubNet, (EID_SM_RA, E_SM, CT_SM));
+in (PubNet, (xB_EP : bitstring, xE_EP : bitstring, xH_EP : bitstring));
+let SK_SM_EP = HashFunOne(ECCPointMul(Add(HashFunTwo(ID_SM, r1_SM), HashFunTwo(a_SM, sk_SM)), Add(PK_EP, xB_EP))) in
+out (PubNet, SymEnc(SK, SK_SM_EP));
+let xEID_SM_EP = SymDec(xE_EP, SK_SM_EP) in
+let xxH_EP = HashFunFour(xEID_SM_EP, xB_EP, SK_SM_EP, CT_SM) in
+if (xxH_EP = xH_EP) then
+event SessionTermination (ID_SM);
+0.
+
+process
+  ((pRA) | (!pEP) | (!pSM))
+############################
+
+####### 2. Testing key compromise impersonation (KCI) attack#######
+(* Channel Definition *)
+free PriNet : channel [private].
+free LedgerNet : channel [private].
+free PubNet : channel.
+
+(* Private Terms *)
+free ID_SM : bitstring [private].
+free sk_SM : bitstring [private].
+free sk_RA : bitstring [private].
+free sk_EP : bitstring.
+free SK : bitstring [private].
+
+(* Public Terms *)
+free ID_RA : bitstring.
+free ID_EP : bitstring.
+const B : bitstring.
+
+(* Functions *)
+fun ECCPointMul(bitstring, bitstring) : bitstring.
+fun Mul(bitstring, bitstring) : bitstring.
+fun Add(bitstring, bitstring) : bitstring.
+fun HashFunOne(bitstring) : bitstring.
+fun HashFunTwo(bitstring, bitstring) : bitstring.
+fun SymEnc(bitstring, bitstring): bitstring.
+fun ConcatTwo(bitstring, bitstring) : bitstring.
+fun HashFunFour(bitstring, bitstring, bitstring, bitstring) : bitstring.
+
+(* Destructors *)
+reduc forall m1 : bitstring, m2 : bitstring; SymDec(SymEnc(m1, m2), m2) = m1.
+reduc forall m1 : bitstring, m2 : bitstring; SeparateFirst2(ConcatTwo(m1, m2)) = m1.
+reduc forall m1 : bitstring, m2 : bitstring; SeparateSecond2(ConcatTwo(m1, m2)) = m2.
+
+(* Equations *)
+equation forall m1 : bitstring, m2 : bitstring, m3 : bitstring, m4 : bitstring;
+ECCPointMul(Add(m1, m2), Add(ECCPointMul(m3, B), ECCPointMul(m4, B))) =
+ECCPointMul(Add(m3, m4), Add(ECCPointMul(m1, B), ECCPointMul(m2, B))).
+
+(* queries *)
+query attacker (sk_EP).
+query ID : bitstring; inj-event (SessionTermination (ID)) ==> inj-event (SessionInitiation (ID)).
+query attacker (SK).
+
+(* Events *)
+event SessionInitiation (bitstring).
+event SessionTermination (bitstring).
+
+(* Registration Authority *)
+let pRA =
+new r1_RA : bitstring;
+new r2_RA : bitstring;
+let PK_RA = ECCPointMul(sk_RA, B) in
+out (PriNet, (PK_RA));
+in (PriNet, (PK_EP : bitstring));
+in (PriNet, (R_SM : bitstring, K_SM_EP : bitstring));
+let R_RA = ECCPointMul(HashFunTwo(ID_RA, r1_RA), B) in
+let s_SM = Add(Mul(HashFunTwo(R_RA, R_SM), sk_RA), HashFunTwo(ID_RA, r1_RA)) in
+let EID_SM_RA = SymEnc(ConcatTwo(ID_SM, r2_RA), HashFunOne(sk_RA)) in
+out (LedgerNet, (R_RA, R_SM, K_SM_EP));
+out (PriNet, (EID_SM_RA, s_SM));
+0.
+
+(* Energy Provider *)
+let pEP =
+new a1_EP : bitstring;
+new a2_EP : bitstring;
+let PK_EP = ECCPointMul(sk_EP, B) in
+out (PriNet, (PK_EP));
+in (PriNet, (PK_RA : bitstring));
+let K_EP_RA = HashFunOne(ECCPointMul(Mul(sk_EP, HashFunTwo(ID_RA, ID_EP)), PK_RA)) in
+in (PubNet, (xEID_SM_RA : bitstring, xE_SM : bitstring, xCT_SM : bitstring));
+in (LedgerNet, (R_RA : bitstring, R_SM : bitstring, K_SM_EP : bitstring));
+let temp0 = SymDec(xE_SM, K_SM_EP) in
+let xA_SM = SeparateFirst2(temp0) in
+let xH_SM = SeparateSecond2(temp0) in
+let xA_EP = HashFunFour(xEID_SM_RA, ID_EP, PK_EP, xCT_SM) in
+let temp1 = ECCPointMul(xH_SM, B) in
+let temp2 = Add(ECCPointMul(xA_EP, Add(ECCPointMul(HashFunTwo(R_RA, R_SM), PK_RA), R_RA)), xA_SM) in
+if (temp1 = temp2) then
+let B_EP = ECCPointMul(HashFunTwo(a1_EP, sk_EP), B) in
+let SK_EP_SM = HashFunOne(ECCPointMul(Add(sk_EP, HashFunTwo(a1_EP, sk_EP)), Add(R_SM, xA_SM))) in
+out (PubNet, SymEnc(SK, SK_EP_SM));
+let EID_SM_EP = SymEnc(ConcatTwo(xEID_SM_RA, a2_EP), K_EP_RA) in
+let E_EP = SymEnc(EID_SM_EP, SK_EP_SM) in
+let H_EP = HashFunFour(EID_SM_EP, B_EP, SK_EP_SM, xCT_SM) in
+out (PubNet, (B_EP, E_EP, H_EP));
+0.
+
+(* Smart Meter *)
+let pSM =
+new r1_SM : bitstring;
+new r2_SM : bitstring;
+new a_SM : bitstring;
+new CT_SM : bitstring;
+in (PriNet, (PK_EP : bitstring));
+let R_SM = ECCPointMul(HashFunTwo(ID_SM, r1_SM), B) in
+let K_SM_EP = HashFunTwo(r1_SM, r2_SM) in
+out (PriNet, (R_SM, K_SM_EP));
+in (PriNet, (EID_SM_RA : bitstring, s_SM : bitstring));
+let A_SM = ECCPointMul(HashFunTwo(a_SM, sk_SM), B) in
+let H_SM = Add(Mul(HashFunFour(EID_SM_RA, ID_EP, PK_EP, CT_SM), s_SM), HashFunTwo(a_SM, sk_SM)) in
+let E_SM = SymEnc(ConcatTwo(A_SM, H_SM), K_SM_EP) in
+event SessionInitiation (ID_SM);
+out (PubNet, (EID_SM_RA, E_SM, CT_SM));
+in (PubNet, (xB_EP : bitstring, xE_EP : bitstring, xH_EP : bitstring));
+let SK_SM_EP = HashFunOne(ECCPointMul(Add(HashFunTwo(ID_SM, r1_SM), HashFunTwo(a_SM, sk_SM)), Add(PK_EP, xB_EP))) in
+out (PubNet, SymEnc(SK, SK_SM_EP));
+let xEID_SM_EP = SymDec(xE_EP, SK_SM_EP) in
+let xxH_EP = HashFunFour(xEID_SM_EP, xB_EP, SK_SM_EP, CT_SM) in
+if (xxH_EP = xH_EP) then
+event SessionTermination (ID_SM);
+0.
+
+process
+  ((pRA) | (!pEP) | (!pSM))
+##################################
+
+####### 3. Testing Ephemeral secret leakage attack#######
+(* Channel Definition *)
+free PriNet : channel [private].
+free LedgerNet : channel [private].
+free PubNet : channel.
+
+(* Private Terms *)
+free ID_SM : bitstring [private].
+free sk_SM : bitstring [private].
+free sk_RA : bitstring [private].
+free sk_EP : bitstring [private].
+free SK : bitstring [private].
+
+(* Public Terms *)
+free ID_RA : bitstring.
+free ID_EP : bitstring.
+const B : bitstring.
+
+(* Functions *)
+fun ECCPointMul(bitstring, bitstring) : bitstring.
+fun Mul(bitstring, bitstring) : bitstring.
+fun Add(bitstring, bitstring) : bitstring.
+fun HashFunOne(bitstring) : bitstring.
+fun HashFunTwo(bitstring, bitstring) : bitstring.
+fun SymEnc(bitstring, bitstring): bitstring.
+fun ConcatTwo(bitstring, bitstring) : bitstring.
+fun HashFunFour(bitstring, bitstring, bitstring, bitstring) : bitstring.
+
+(* Destructors *)
+reduc forall m1 : bitstring, m2 : bitstring; SymDec(SymEnc(m1, m2), m2) = m1.
+reduc forall m1 : bitstring, m2 : bitstring; SeparateFirst2(ConcatTwo(m1, m2)) = m1.
+reduc forall m1 : bitstring, m2 : bitstring; SeparateSecond2(ConcatTwo(m1, m2)) = m2.
+
+(* Equations *)
+equation forall m1 : bitstring, m2 : bitstring, m3 : bitstring, m4 : bitstring;
+ECCPointMul(Add(m1, m2), Add(ECCPointMul(m3, B), ECCPointMul(m4, B))) =
+ECCPointMul(Add(m3, m4), Add(ECCPointMul(m1, B), ECCPointMul(m2, B))).
+
+(* queries *)
+query attacker (new a_SM).
+query attacker (new a1_EP).
+query attacker (SK).
+
+(* Events *)
+event SessionInitiation (bitstring).
+event SessionTermination (bitstring).
+
+(* Registration Authority *)
+let pRA =
+new r1_RA : bitstring;
+new r2_RA : bitstring;
+let PK_RA = ECCPointMul(sk_RA, B) in
+out (PriNet, (PK_RA));
+in (PriNet, (PK_EP : bitstring));
+in (PriNet, (R_SM : bitstring, K_SM_EP : bitstring));
+let R_RA = ECCPointMul(HashFunTwo(ID_RA, r1_RA), B) in
+let s_SM = Add(Mul(HashFunTwo(R_RA, R_SM), sk_RA), HashFunTwo(ID_RA, r1_RA)) in
+let EID_SM_RA = SymEnc(ConcatTwo(ID_SM, r2_RA), HashFunOne(sk_RA)) in
+out (LedgerNet, (R_RA, R_SM, K_SM_EP));
+out (PriNet, (EID_SM_RA, s_SM));
+0.
+
+(* Energy Provider *)
+let pEP =
+new a1_EP : bitstring;
+out (PubNet, a1_EP);
+new a2_EP : bitstring;
+let PK_EP = ECCPointMul(sk_EP, B) in
+out (PriNet, (PK_EP));
+in (PriNet, (PK_RA : bitstring));
+let K_EP_RA = HashFunOne(ECCPointMul(Mul(sk_EP, HashFunTwo(ID_RA, ID_EP)), PK_RA)) in
+in (PubNet, (xEID_SM_RA : bitstring, xE_SM : bitstring, xCT_SM : bitstring));
+in (LedgerNet, (R_RA : bitstring, R_SM : bitstring, K_SM_EP : bitstring));
+let temp0 = SymDec(xE_SM, K_SM_EP) in
+let xA_SM = SeparateFirst2(temp0) in
+let xH_SM = SeparateSecond2(temp0) in
+let xA_EP = HashFunFour(xEID_SM_RA, ID_EP, PK_EP, xCT_SM) in
+let temp1 = ECCPointMul(xH_SM, B) in
+let temp2 = Add(ECCPointMul(xA_EP, Add(ECCPointMul(HashFunTwo(R_RA, R_SM), PK_RA), R_RA)), xA_SM) in
+if (temp1 = temp2) then
+let B_EP = ECCPointMul(HashFunTwo(a1_EP, sk_EP), B) in
+let SK_EP_SM = HashFunOne(ECCPointMul(Add(sk_EP, HashFunTwo(a1_EP, sk_EP)), Add(R_SM, xA_SM))) in
+out (PubNet, SymEnc(SK, SK_EP_SM));
+let EID_SM_EP = SymEnc(ConcatTwo(xEID_SM_RA, a2_EP), K_EP_RA) in
+let E_EP = SymEnc(EID_SM_EP, SK_EP_SM) in
+let H_EP = HashFunFour(EID_SM_EP, B_EP, SK_EP_SM, xCT_SM) in
+out (PubNet, (B_EP, E_EP, H_EP));
+0.
+
+(* Smart Meter *)
+let pSM =
+new r1_SM : bitstring;
+new r2_SM : bitstring;
+new a_SM : bitstring;
+out (PubNet, a_SM);
+new CT_SM : bitstring;
+in (PriNet, (PK_EP : bitstring));
+let R_SM = ECCPointMul(HashFunTwo(ID_SM, r1_SM), B) in
+let K_SM_EP = HashFunTwo(r1_SM, r2_SM) in
+out (PriNet, (R_SM, K_SM_EP));
+in (PriNet, (EID_SM_RA : bitstring, s_SM : bitstring));
+let A_SM = ECCPointMul(HashFunTwo(a_SM, sk_SM), B) in
+let H_SM = Add(Mul(HashFunFour(EID_SM_RA, ID_EP, PK_EP, CT_SM), s_SM), HashFunTwo(a_SM, sk_SM)) in
+let E_SM = SymEnc(ConcatTwo(A_SM, H_SM), K_SM_EP) in
+event SessionInitiation (ID_SM);
+out (PubNet, (EID_SM_RA, E_SM, CT_SM));
+in (PubNet, (xB_EP : bitstring, xE_EP : bitstring, xH_EP : bitstring));
+let SK_SM_EP = HashFunOne(ECCPointMul(Add(HashFunTwo(ID_SM, r1_SM), HashFunTwo(a_SM, sk_SM)), Add(PK_EP, xB_EP))) in
+out (PubNet, SymEnc(SK, SK_SM_EP));
+let xEID_SM_EP = SymDec(xE_EP, SK_SM_EP) in
+let xxH_EP = HashFunFour(xEID_SM_EP, xB_EP, SK_SM_EP, CT_SM) in
+if (xxH_EP = xH_EP) then
+event SessionTermination (ID_SM);
+0.
+
+process
+  ((pRA) | (!pEP) | (!pSM))
+
+##################################
+
+####### 4. Testing Ephemeral secret leakage attack#######
+
+(* Channel Definition *)
+free PriNet : channel [private].
+free LedgerNet : channel [private].
+free PubNet : channel.
+
+(* Private Terms *)
+free ID_SM : bitstring [private].
+free sk_SM : bitstring [private].
+free sk_RA : bitstring [private].
+free sk_EP : bitstring [private].
+free SK : bitstring [private].
+
+(* Public Terms *)
+free ID_RA : bitstring.
+free ID_EP : bitstring.
+const B : bitstring.
+
+(* Functions *)
+fun ECCPointMul(bitstring, bitstring) : bitstring.
+fun Mul(bitstring, bitstring) : bitstring.
+fun Add(bitstring, bitstring) : bitstring.
+fun HashFunOne(bitstring) : bitstring.
+fun HashFunTwo(bitstring, bitstring) : bitstring.
+fun SymEnc(bitstring, bitstring): bitstring.
+fun ConcatTwo(bitstring, bitstring) : bitstring.
+fun HashFunFour(bitstring, bitstring, bitstring, bitstring) : bitstring.
+
+(* Destructors *)
+reduc forall m1 : bitstring, m2 : bitstring; SymDec(SymEnc(m1, m2), m2) = m1.
+reduc forall m1 : bitstring, m2 : bitstring; SeparateFirst2(ConcatTwo(m1, m2)) = m1.
+reduc forall m1 : bitstring, m2 : bitstring; SeparateSecond2(ConcatTwo(m1, m2)) = m2.
+
+(* Equations *)
+equation forall m1 : bitstring, m2 : bitstring, m3 : bitstring, m4 : bitstring;
+ECCPointMul(Add(m1, m2), Add(ECCPointMul(m3, B), ECCPointMul(m4, B))) =
+ECCPointMul(Add(m3, m4), Add(ECCPointMul(m1, B), ECCPointMul(m2, B))).
+
+(* queries *)
+query attacker (sk_EP).
+query attacker (sk_SM).
+query attacker (SK).
+
+(* Events *)
+event SessionInitiation (bitstring).
+event SessionTermination (bitstring).
+
+(* Registration Authority *)
+let pRA =
+new r1_RA : bitstring;
+new r2_RA : bitstring;
+let PK_RA = ECCPointMul(sk_RA, B) in
+out (PriNet, (PK_RA));
+in (PriNet, (PK_EP : bitstring));
+in (PriNet, (R_SM : bitstring, K_SM_EP : bitstring));
+let R_RA = ECCPointMul(HashFunTwo(ID_RA, r1_RA), B) in
+let s_SM = Add(Mul(HashFunTwo(R_RA, R_SM), sk_RA), HashFunTwo(ID_RA, r1_RA)) in
+let EID_SM_RA = SymEnc(ConcatTwo(ID_SM, r2_RA), HashFunOne(sk_RA)) in
+out (LedgerNet, (R_RA, R_SM, K_SM_EP));
+out (PriNet, (EID_SM_RA, s_SM));
+0.
+
+(* Energy Provider *)
+let pEP =
+new a1_EP : bitstring;
+new a2_EP : bitstring;
+let PK_EP = ECCPointMul(sk_EP, B) in
+out (PriNet, (PK_EP));
+in (PriNet, (PK_RA : bitstring));
+let K_EP_RA = HashFunOne(ECCPointMul(Mul(sk_EP, HashFunTwo(ID_RA, ID_EP)), PK_RA)) in
+in (PubNet, (xEID_SM_RA : bitstring, xE_SM : bitstring, xCT_SM : bitstring));
+in (LedgerNet, (R_RA : bitstring, R_SM : bitstring, K_SM_EP : bitstring));
+let temp0 = SymDec(xE_SM, K_SM_EP) in
+let xA_SM = SeparateFirst2(temp0) in
+let xH_SM = SeparateSecond2(temp0) in
+let xA_EP = HashFunFour(xEID_SM_RA, ID_EP, PK_EP, xCT_SM) in
+let temp1 = ECCPointMul(xH_SM, B) in
+let temp2 = Add(ECCPointMul(xA_EP, Add(ECCPointMul(HashFunTwo(R_RA, R_SM), PK_RA), R_RA)), xA_SM) in
+if (temp1 = temp2) then
+let B_EP = ECCPointMul(HashFunTwo(a1_EP, sk_EP), B) in
+let SK_EP_SM = HashFunOne(ECCPointMul(Add(sk_EP, HashFunTwo(a1_EP, sk_EP)), Add(R_SM, xA_SM))) in
+out (PubNet, SymEnc(SK, SK_EP_SM));
+let EID_SM_EP = SymEnc(ConcatTwo(xEID_SM_RA, a2_EP), K_EP_RA) in
+let E_EP = SymEnc(EID_SM_EP, SK_EP_SM) in
+let H_EP = HashFunFour(EID_SM_EP, B_EP, SK_EP_SM, xCT_SM) in
+out (PubNet, (B_EP, E_EP, H_EP));
+0.
+
+(* Smart Meter *)
+let pSM =
+new r1_SM : bitstring;
+new r2_SM : bitstring;
+new a_SM : bitstring;
+new CT_SM : bitstring;
+in (PriNet, (PK_EP : bitstring));
+let R_SM = ECCPointMul(HashFunTwo(ID_SM, r1_SM), B) in
+let K_SM_EP = HashFunTwo(r1_SM, r2_SM) in
+out (PriNet, (R_SM, K_SM_EP));
+in (PriNet, (EID_SM_RA : bitstring, s_SM : bitstring));
+let A_SM = ECCPointMul(HashFunTwo(a_SM, sk_SM), B) in
+let H_SM = Add(Mul(HashFunFour(EID_SM_RA, ID_EP, PK_EP, CT_SM), s_SM), HashFunTwo(a_SM, sk_SM)) in
+let E_SM = SymEnc(ConcatTwo(A_SM, H_SM), K_SM_EP) in
+event SessionInitiation (ID_SM);
+out (PubNet, (EID_SM_RA, E_SM, CT_SM));
+in (PubNet, (xB_EP : bitstring, xE_EP : bitstring, xH_EP : bitstring));
+let SK_SM_EP = HashFunOne(ECCPointMul(Add(HashFunTwo(ID_SM, r1_SM), HashFunTwo(a_SM, sk_SM)), Add(PK_EP, xB_EP))) in
+out (PubNet, SymEnc(SK, SK_SM_EP));
+let xEID_SM_EP = SymDec(xE_EP, SK_SM_EP) in
+let xxH_EP = HashFunFour(xEID_SM_EP, xB_EP, SK_SM_EP, CT_SM) in
+if (xxH_EP = xH_EP) then
+event SessionTermination (ID_SM);
+0.
+
+process
+  ((pRA) | (!pEP) | (!pSM) | (phase 1 ; out (PubNet, (sk_EP, sk_SM))))
+#########################################################################
+
