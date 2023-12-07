@@ -1,5 +1,5 @@
-# KMP-ProVerif-Smart-Grid
-Welcome to the KMP-ProVerif-Smart-Grid repository, where we present ProVerif automated security verification codes tailored for a key management protocol designed specifically for smart grids. This protocol is equipped with comprehensive process definitions for key entities, namely the Registration Authority (RA), Energy Provider (EP), and Smart Meter (SM).
+# KMP-Smart-Grid
+Welcome to the KMP-Smart-Grid repository, where we present ProVerif automated security verification codes tailored for a key management protocol designed specifically for smart grids. This protocol is equipped with comprehensive process definitions for key entities, namely the Registration Authority (RA), Energy Provider (EP), and Smart Meter (SM).
 
 ## Overview
 The repository includes four distinct codes designed to test the authentication and key agreement protocol against various attacks in a smart grid scenario. Additionally, it evaluates whether the protocol provides perfect forward secrecy.
